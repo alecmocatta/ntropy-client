@@ -1,9 +1,13 @@
 import numpy as np
 import random
+import json
 from ntropy.models import NetworkClassifier
 
-SERVER = "COMPUTE_SERVER_URL"
-API_KEY = "YOUR_API_KEY"
+#read server url and api key from config file
+with open("config.json", "r") as f:
+    config = json.load(f)
+    SERVER = config["server"]
+    API_KEY = config["api_key"]
 
 N = 1000 #number of observations
 M = 1000 #number of features
