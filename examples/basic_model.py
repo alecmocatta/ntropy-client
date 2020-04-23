@@ -3,7 +3,7 @@ import random
 import json
 from ntropy.models import NetworkClassifier
 
-#read server url and api key from config file
+#get server url and api key from config file
 with open("config.json", "r") as f:
     config = json.load(f)
     SERVER = config["server"]
