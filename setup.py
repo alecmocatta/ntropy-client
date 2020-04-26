@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="ntropy",
-    version="0.0.1",
+    version="0.0.2",
     author="Ilia Zintchenko",
     author_email="ilia@ntropy.network",
     description="Run, train and benchmark machine learning models across data silos",
