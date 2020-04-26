@@ -10,7 +10,8 @@ with open("config.json", "r") as f:
     API_KEY = config["api_key"]
 
 N = 1000 #number of observations
-M = 1000 #number of features
+M = 100 #number of features
+use_encoding = True #encode data before sending to server
 
 #initialising data
 train_features = np.random.rand(N,M)
@@ -21,7 +22,7 @@ valid_features = np.random.rand(N,M)
 model = NetworkClassifier(SERVER, API_KEY)
 
 #fitting model
-model.fit(train_features, train_labels)
+model.fit(train_features, train_labels, use_encoding)
 
 #predicting labels on validation data
 valid_labels = model.predict(valid_features)
