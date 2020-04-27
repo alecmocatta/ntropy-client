@@ -14,7 +14,7 @@ M = 100 #number of features
 
 #initialising data
 data_x = np.random.rand(N,M) #numerical observations
-data_y = np.array([[random.randint(0,1)] for i in range(N)]).flatten() #binary labels
+data_y = np.random.randint(2, size=N) #binary labels
 
 #initialising model
 model = NetworkClassifier(SERVER, API_KEY)
