@@ -75,7 +75,7 @@ class NetworkClassifier():
             time.sleep(3)
             status = requests.get(self.server + "/check_status", params = {"API_KEY": self.api_key, "data_hash": data_hash}).text
 
-    def predict(self, valid_features):
+    def predict(self, x):
         if not self.data_hash:
             print("Please fit model first")
             return
@@ -90,6 +90,6 @@ class NetworkClassifier():
             print("Your model is being trained. Please come back later.")
             return
         else:
-            valid_labels = requests.post(self.server + "/predict", params = {"API_KEY": self.api_key, "data_hash": self.data_hash, "x": valid_features.shape[0], "y": valid_features.shape[1]}, data = valid_features.tostring()).json()
-            return np.array(valid_labels)
+            y = requests.post(self.server + "/predict", params = {"API_KEY": self.api_key, "data_hash": self.data_hash, "d0": x.shape[0], "d1": x.shape[1]}, data = x.tostring()).json()
+            return np.array(y)
 

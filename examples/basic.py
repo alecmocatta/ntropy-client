@@ -11,19 +11,18 @@ with open("config.json", "r") as f:
 
 N = 1000 #number of observations
 M = 100 #number of features
-use_encoding = True #encode data before sending to server
 
 #initialising data
-train_features = np.random.rand(N,M)
-train_labels = np.array([[random.randint(0,1)] for i in range(N)]).flatten()
-valid_features = np.random.rand(N,M)
+data_x = np.random.rand(N,M) #numerical observations
+data_y = np.array([[random.randint(0,1)] for i in range(N)]).flatten() #binary labels
 
 #initialising model
 model = NetworkClassifier(SERVER, API_KEY)
 
-#fitting model
-model.fit(train_features, train_labels, use_encoding)
+#fitting model to first 80% (training data)
+Nc = int(0.8 * len(data_x))
+model.fit(data_x[:Nc], data_y[:Nc], use_encoding = True)
 
-#predicting labels on validation data
-valid_labels = model.predict(valid_features)
+#predicting labels on last 20% (test data)
+y = model.predict(data_x[Nc:])
 
