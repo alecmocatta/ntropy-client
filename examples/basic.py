@@ -21,7 +21,7 @@ model = NetworkClassifier(SERVER, API_KEY)
 
 #fitting model to first 80% (training data)
 Nc = int(0.8 * len(data_x))
-model.fit(data_x[:Nc], data_y[:Nc], use_encoding = True)
+model.fit(data_x[:Nc], data_y[:Nc], use_encoder = True)
 
 #predicting labels on last 20% (test data)
 y = model.predict(data_x[Nc:])

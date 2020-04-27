@@ -8,8 +8,8 @@ from keras.layers import Dense, Dropout
 from keras import backend as Kb
 from keras.callbacks.callbacks import EarlyStopping, ReduceLROnPlateau 
 
-class Model:
-    def __init__(self, n_input, num_layers = 2, num_units = None, layer_activation = 'sigmoid', final_activation = 'sigmoid', loss = 'mse', optimizer = 'adam', dropout_frac = 0.2, encoder = False):
+class Autoencoder:
+    def __init__(self, n_input, num_layers = 2, num_units = None, layer_activation = 'sigmoid', final_activation = 'sigmoid', loss = 'mse', optimizer = 'adam', dropout_frac = 0.2, only_encoder = False):
 
         if not num_units:
             num_units = n_input
@@ -22,11 +22,17 @@ class Model:
             self.model.add(Dropout(dropout_frac))
             self.model.add(Dense(num_units, activation=layer_activation, trainable=True, name=str(l)))
 
-        if not encoder:
+        if not only_encoder:
             self.model.add(Dropout(dropout_frac))
             self.model.add(Dense(n_input, activation=final_activation, trainable=True, name="out"))
 
         self.model.compile(loss=loss, optimizer=optimizer)
+
+    def get_weights(self):
+        return self.model.get_weights()
+
+    def set_weights(self, weights):
+        return self.model.set_weights(weights)
 
     def fit(self, x_train, verbose = False):
         callbacks = [
@@ -35,33 +41,35 @@ class Model:
                     ]
         self.model.fit(x_train, x_train, batch_size=min(100,int(0.1 * len(x_train))), epochs=1000, validation_split=0.2, shuffle=True, callbacks=callbacks, verbose=verbose) 
 
-    def predict(self, x):
+    def encode(self, x):
         return self.model.predict(x)
 
-def encode(x_train, num_layers = 2):
-    model = Model(n_input=x_train.shape[1], num_layers=num_layers)
-    model.fit(x_train)
-    weights = model.model.get_weights()
-    num_layers_encoder = int(num_layers/2)
-    encoder = Model(n_input=x_train.shape[1], num_layers=num_layers_encoder, encoder = True)
-    encoder.model.set_weights(weights[:(2 * (1 + num_layers_encoder))])
-    return encoder.predict(x_train)
+def make_encoder(x_train, num_layers = 4):
+    encoder = Autoencoder(n_input=x_train.shape[1], num_layers=num_layers)
+    encoder.fit(x_train)
+    weights = encoder.get_weights()
+    num_layers = int(num_layers/2)
+    encoder = Autoencoder(n_input=x_train.shape[1], num_layers=num_layers, only_encoder = True)
+    encoder.set_weights(weights[:(2 * (1 + num_layers))])
+    return encoder
 
 class NetworkClassifier():
     def __init__(self, server, api_key):
         self.server = server
         self.api_key = api_key
         self.data_hash = None
+        self.encoder = None
 
-    def fit(self, x_train, y_train, use_encoding = True):
-        if use_encoding:
-            print("Encoding data...")
-            x_train = encode(x_train)
+    def fit(self, x_train, y_train, use_encoder = True):
+        if use_encoder:
+            print("Generating encoder...")
+            self.encoder = make_encoder(x_train)
+            x_train = self.encoder.encode(x_train)
             print("Done")
         data = np.zeros((x_train.shape[0],x_train.shape[1]+1))
         data[:,:-1] = x_train
         data[:,-1] = y_train
-        payload = data.tostring()
+        payload = data.astype(float).tostring()
 
         data_hash = str(hash(payload))
         self.data_hash = data_hash
@@ -70,7 +78,7 @@ class NetworkClassifier():
             print("API key invalid")
             return 
         if status == "ready":
-            requests.post(self.server + '/fit', data=payload, params = {"API_KEY": self.api_key, "data_hash": data_hash, "x": data.shape[0], "y": data.shape[1]})
+            requests.post(self.server + '/fit', data=payload, params = {"API_KEY": self.api_key, "data_hash": data_hash, "d0": data.shape[0], "d1": data.shape[1]})
         while status != "done":
             time.sleep(3)
             status = requests.get(self.server + "/check_status", params = {"API_KEY": self.api_key, "data_hash": data_hash}).text
@@ -90,6 +98,11 @@ class NetworkClassifier():
             print("Your model is being trained. Please come back later.")
             return
         else:
-            y = requests.post(self.server + "/predict", params = {"API_KEY": self.api_key, "data_hash": self.data_hash, "d0": x.shape[0], "d1": x.shape[1]}, data = x.tostring()).json()
+            if self.encoder:
+                print("Encoding data...")
+                x = self.encoder.encode(x)
+                print("Done...")
+            payload = x.astype(float).tostring()
+            y = requests.post(self.server + "/predict", params = {"API_KEY": self.api_key, "data_hash": self.data_hash, "d0": x.shape[0], "d1": x.shape[1]}, data = payload).json()
             return np.array(y)
 
