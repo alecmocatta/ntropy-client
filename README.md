@@ -6,7 +6,7 @@ To achieve this, we train a global model on data from all datasets at once. Data
 
 For example, from combining 4 datasets of credit card transactions from 3 different organizations, ROC AUC already improves by more than 5%. See https://medium.com/ntropy-network/dissolving-data-silos-21e5eaab11f6 for more details.
 
-![Benchmark 1](https://raw.githubusercontent.com/ntropy-network/ntropy-client/master/images/img2.png)
+![Benchmark 1](https://raw.githubusercontent.com/ntropy-network/ntropy-client/master/images/img2.png | width=100)
 
 There are currently two modes of operation for the global model:
 
@@ -14,7 +14,7 @@ There are currently two modes of operation for the global model:
 
 2. end-to-end classifier what translates each incoming observation into the final label. This is suitable for smaller scale, narrower setups, where all clients are interested in the same type of labels.
 
-![Deployment diagram](https://raw.githubusercontent.com/ntropy-network/ntropy-client/master/images/img1.png)
+![Deployment diagram](https://raw.githubusercontent.com/ntropy-network/ntropy-client/master/images/img1.png | width=100)
 
 ## FAQ
 
