@@ -5,6 +5,7 @@ import torch
 cuda = torch.cuda.is_available()
 device = torch.device("cuda" if cuda else "cpu")
 
+
 class NetworkGenerator:
     r"""Train generator on local dataset and samples improved dataset from server model.
 
@@ -25,11 +26,15 @@ class NetworkGenerator:
             self.fe0 = nn.Linear(h_dim, z_dim)
             self.fe1 = nn.Linear(h_dim, z_dim)
 
-            self.encoder_list = nn.ModuleList([nn.Linear(x_dim + c_dim, h_dim), nn.ReLU()])
+            self.encoder_list = nn.ModuleList(
+                [nn.Linear(x_dim + c_dim, h_dim), nn.ReLU()]
+            )
             for _ in range(num_layers - 1):
                 self.encoder_list.extend([nn.Linear(h_dim, h_dim), nn.ReLU()])
 
-            self.decoder_list = nn.ModuleList([nn.Linear(z_dim + c_dim, h_dim), nn.ReLU()])
+            self.decoder_list = nn.ModuleList(
+                [nn.Linear(z_dim + c_dim, h_dim), nn.ReLU()]
+            )
             for _ in range(num_layers - 1):
                 self.decoder_list.extend([nn.Linear(h_dim, h_dim), nn.ReLU()])
             self.decoder_list.extend([nn.Linear(h_dim, x_dim), nn.Sigmoid()])
@@ -55,7 +60,6 @@ class NetworkGenerator:
             mu, log_var = self.encoder(x, c)
             z = self.sampling(mu, log_var)
             return self.decoder(z, c), mu, log_var
-
 
     def __init__(self, SERVER, API_KEY, x_dim, h_dim, z_dim, c_dim, num_layers):
         assert num_layers > 0, "model must have at least 1 layer"
