@@ -18,7 +18,7 @@ weights = np.random.uniform(0,1,N) #sample weights
 dataset_id = "example_dataset" #unique dataset id 
 
 generator = NetworkGenerator(SERVER, API_KEY, x_dim = samples.shape[1], h_dim = 512, z_dim = 8, c_dim = len(np.unique(labels)), num_layers = 2) #initialize generator
-generator.train(samples, labels, weights, batch_size = 128, num_epochs = 1, learning_rate = 0.001) #train generator locally on our data
+generator.fit(samples, labels, weights, batch_size = 128, num_epochs = 1, learning_rate = 0.001) #train generator locally on our data
 generator.upload(dataset_id) #upload generator to server
 samples_new, labels_new, weights_new = generator.generate(dataset_id, N) #get improved dataset from server
 

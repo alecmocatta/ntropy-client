@@ -70,7 +70,7 @@ class NetworkGenerator():
         KLD = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
         return BCE + KLD
 
-    def train(self, samples, labels, weights = None, batch_size = 1, num_epochs = 20, learning_rate = 0.001):
+    def fit(self, samples, labels, weights = None, batch_size = 1, num_epochs = 20, learning_rate = 0.001):
         dataset = TensorDataset(torch.from_numpy(samples).float(),torch.from_numpy(labels))
         kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
         if type(weights).__name__ == 'ndarray':
@@ -93,6 +93,20 @@ class NetworkGenerator():
                 if batch_idx % 100 == 0:
                     print('epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(epoch, batch_idx * len(data), len(loader.dataset),100. * batch_idx / len(loader), loss.item() / len(data)))
             print('====> epoch: {} avg loss: {:.4f}'.format(epoch, train_loss / len(loader.dataset)))
+
+    def generate_local(self, N):
+        self.model.eval()
+        with torch.no_grad():
+            z = torch.randn(N, self.z_dim).to(device)
+            c = torch.zeros(N, self.c_dim)
+            labels = torch.empty(N, dtype=torch.long)
+            for i in range(N):
+                label = random.randint(0,self.c_dim-1)
+                c[i, label] = 1
+                labels[i] = label
+            samples = self.model.decoder(z, c.to(device)).cpu()
+        weights = torch.ones(labels.size(0)) 
+        return samples, labels, weights
 
     def generate(self, dataset_id, N):
         self.params["dataset_id"] = dataset_id
