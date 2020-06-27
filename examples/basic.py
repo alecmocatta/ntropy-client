@@ -26,19 +26,17 @@ generator = NetworkGenerator(
     z_dim=8,
     c_dim=len(np.unique(labels)),
     num_layers=2,
-)  
+)
 
 # train generator locally on our data
 generator.fit(
     samples, labels, weights, batch_size=128, num_epochs=1, learning_rate=0.001
-)  
+)
 
 # upload generator to server
-generator.upload(dataset_id)  
+generator.upload(dataset_id)
 
 # get improved dataset from server
-samples_new, labels_new, weights_new = generator.generate(
-    dataset_id, N
-)  
+samples_new, labels_new, weights_new = generator.generate(dataset_id, N)
 
 # train model on new data...
