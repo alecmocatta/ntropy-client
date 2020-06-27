@@ -1,59 +1,122 @@
-import requests
-import numpy as np
 import time
-from sklearn.ensemble import RandomTreesEmbedding
+import requests
+import torch
+from torch import nn, optim
+from torch.nn import functional as F
+from torch.autograd import Variable
+from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data.sampler import WeightedRandomSampler
 
-class NetworkClassifier():
-    def __init__(self, server, api_key):
-        self.server = server
-        self.api_key = api_key
-        self.data_hash = None
-        self.encoder = None
+torch.manual_seed(1)
 
-    def fit(self, x_train, y_train, use_encoder = True):
-        if use_encoder:
-            print("Generating encoder...")
-            self.encoder = RandomTreesEmbedding(n_estimators=200, max_depth=8, random_state=0)
-            self.encoder.fit(x_train)
-            x_train = self.encoder.transform(x_train).todense()
-            print("Done")
-        data = np.zeros((x_train.shape[0],x_train.shape[1]+1))
-        data[:,:-1] = x_train
-        data[:,-1] = y_train
-        payload = data.astype(float).tostring()
+cuda = torch.cuda.is_available()
+device = torch.device("cuda" if cuda else "cpu")
 
-        data_hash = str(hash(payload))
-        self.data_hash = data_hash
-        status = requests.get(self.server + "/check_status", params = {"API_KEY": self.api_key, "data_hash": data_hash}).text
+class Model(nn.Module):
+    def __init__(self, x_dim, h_dim, z_dim, c_dim, num_layers):
+        super(Model, self).__init__()
+        
+        self.fe0 = nn.Linear(h_dim, z_dim)
+        self.fe1 = nn.Linear(h_dim, z_dim)
+
+        self.encoder_list = nn.ModuleList([nn.Linear(x_dim + c_dim, h_dim), nn.ReLU()])
+        for _ in range(num_layers-1):
+            self.encoder_list.extend([nn.Linear(h_dim, h_dim), nn.ReLU()])
+
+        self.decoder_list = nn.ModuleList([nn.Linear(z_dim + c_dim, h_dim), nn.ReLU()])
+        for _ in range(num_layers-1):
+            self.decoder_list.extend([nn.Linear(h_dim, h_dim), nn.ReLU()])
+        self.decoder_list.extend([nn.Linear(h_dim, x_dim), nn.Sigmoid()])
+    
+    def encoder(self, x, c):
+        out = torch.cat([x, c], 1)
+        for f in self.encoder_list:
+            out = f(out)
+        return self.fe0(out), self.fe1(out)
+
+    def decoder(self, z, c):
+        out = torch.cat([z, c], 1)
+        for f in self.decoder_list:
+            out = f(out)
+        return out
+
+    def sampling(self, mu, log_var):
+        std = torch.exp(0.5*log_var)
+        eps = torch.randn_like(std)
+        return eps.mul(std).add(mu)
+    
+    def forward(self, x, c):
+        mu, log_var = self.encoder(x, c)
+        z = self.sampling(mu, log_var)
+        return self.decoder(z, c), mu, log_var
+
+class NetworkGenerator():
+
+    def __init__(self, SERVER, API_KEY, x_dim, h_dim, z_dim, c_dim, num_layers):
+        self.SERVER = SERVER
+        self.model = Model(x_dim=x_dim, h_dim=h_dim, z_dim=z_dim, c_dim=c_dim, num_layers=num_layers).to(device)
+        self.z_dim = z_dim
+        self.c_dim = c_dim
+        self.params = {"API_KEY": API_KEY, "x_dim": x_dim, "h_dim": h_dim, "z_dim": z_dim, "c_dim": c_dim, "num_layers": num_layers}
+
+    def one_hot(self, labels):
+        targets = torch.zeros(labels.size(0), self.c_dim)
+        for i, label in enumerate(labels):
+            targets[i, label] = 1
+        return Variable(targets)
+
+    def loss_function(self, recon_x, x, mu, log_var):
+        BCE = F.binary_cross_entropy(recon_x, x, reduction='sum')
+        KLD = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
+        return BCE + KLD
+
+    def train(self, samples, labels, weights = None, batch_size = 1, num_epochs = 20, learning_rate = 0.001):
+        dataset = TensorDataset(torch.from_numpy(samples).float(),torch.from_numpy(labels))
+        kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
+        if type(weights).__name__ == 'ndarray':
+            sampler = WeightedRandomSampler(weights=weights, num_samples=len(samples))
+            loader = DataLoader(dataset=dataset, batch_size=batch_size, sampler=sampler, **kwargs)
+        else:
+            loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, **kwargs)
+        optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        for epoch in range(1, num_epochs + 1):
+            self.model.train()
+            train_loss = 0
+            for batch_idx, (data, cond) in enumerate(loader):
+                data, cond = data.to(device), self.one_hot(cond).to(device)
+                optimizer.zero_grad()
+                recon_batch, mu, log_var = self.model(data, cond)
+                loss = self.loss_function(recon_batch, data, mu, log_var)
+                loss.backward()
+                train_loss += loss.item()
+                optimizer.step()
+                if batch_idx % 100 == 0:
+                    print('epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(epoch, batch_idx * len(data), len(loader.dataset),100. * batch_idx / len(loader), loss.item() / len(data)))
+            print('====> epoch: {} avg loss: {:.4f}'.format(epoch, train_loss / len(loader.dataset)))
+
+    def generate(self, dataset_id, N):
+        self.params["dataset_id"] = dataset_id
+        self.params["N"] = N
+        status = requests.get(self.SERVER + "/check_status", params = self.params).text
         if status == "key invalid":
             print("API key invalid")
-            return 
-        if status == "ready":
-            requests.post(self.server + '/fit', data=payload, params = {"API_KEY": self.api_key, "data_hash": data_hash, "d0": data.shape[0], "d1": data.shape[1]})
+            return
+        requests.post(self.SERVER + "/generate", params = self.params)
         while status != "done":
             time.sleep(3)
-            status = requests.get(self.server + "/check_status", params = {"API_KEY": self.api_key, "data_hash": data_hash}).text
+            status = requests.get(self.SERVER + "/check_status", params = self.params).text
+        data = requests.get(self.SERVER + "/data", params = self.params).json()
+        return data["samples"], data["labels"], data["weights"]
 
-    def predict(self, x):
-        if not self.data_hash:
-            print("Please fit model first")
-            return
-        status = requests.get(self.server + "/check_status", params = {"API_KEY": self.api_key, "data_hash": self.data_hash}).text
+    def upload(self, dataset_id):
+        self.params["dataset_id"] = dataset_id
+        status = requests.get(self.SERVER + "/check_status", params = self.params).text
         if status == "key invalid":
             print("API key invalid")
-            return 
-        if status == "ready":
-            print("Please fit model first")
             return
-        elif status == "busy":
-            print("Your model is being trained. Please come back later.")
-            return
-        else:
-            if self.encoder:
-                print("Encoding data...")
-                x = self.encoder.transform(x).todense()
-                print("Done...")
-            payload = x.astype(float).tostring()
-            y = requests.post(self.server + "/predict", params = {"API_KEY": self.api_key, "data_hash": self.data_hash, "d0": x.shape[0], "d1": x.shape[1]}, data = payload).json()
-            return np.array(y)
+        filename = "./model.pt"
+        torch.save(self.model.state_dict(), filename)
+        with open(filename, "rb") as fp:
+            res = requests.post(self.SERVER + "/upload", files = {"file": fp}, params = self.params).text
+            print(res)
 
