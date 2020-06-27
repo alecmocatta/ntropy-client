@@ -1,44 +1,32 @@
 # ntropy-client
 
-A python package to run, train and benchmark machine learning models on data residing in multiple data silos.
+A python package to train machine learning models on data residing in multiple data silos. Data from different datasets can boost accuracy and robustness of a machine learning model far beyond whats possible on just a single dataset.
 
-To achieve this, we train a global model on data from all datasets at once. Data from different datasets can boost accuracy and robustness of a machine learning model far beyond just a single dataset.
+To achieve this, a data generator on the server is trained on data from all participants in the network. Each participant can then sample a dataset in their local feature encoding from the server. As the server combines information from multiple structurally similar datasets, it can generate significantly better data than any of the loal datasets.
 
 For example, from combining 4 datasets of credit card transactions from 3 different organizations, ROC AUC already improves by more than 5%. See https://medium.com/ntropy-network/dissolving-data-silos-21e5eaab11f6 for more details.
 
 <img src="https://raw.githubusercontent.com/ntropy-network/ntropy-client/master/images/img2.png" width="50%">
 
-There are currently two modes of operation for the global model:
-
-1. encoder that maps data from all distributions onto a shared latent space. Respective local models can then be trained locally on this latent data. This is optimal for a large number of datasets and supports different use cases for each client.
-
-2. end-to-end classifier what translates each incoming observation into the final label. This is suitable for smaller scale, narrower setups, where all clients are interested in the same type of labels.
-
-<img src="https://raw.githubusercontent.com/ntropy-network/ntropy-client/master/images/img1.png" width="50%">
-
 ## FAQ
 
 #### What data privacy guarantees does this have?
 
-A machine learning model only learns from the distribution of the data, independent of the encoding. Instead of each client sending raw data directly, it can therefore only send a latent representation of the data. Although this approach does not have any formal privacy guarantees, it is currently one of the most common ways of dealing with private or sensitive datasets.  
+Local datasets are not sent directly to the server. Instead, a generator is first trained on its local dataset on the client. Then, noise is added to the weights of the trained generator to enforce mathematical privacy guarantees. Only then is the weights vector from that generator sent to the server.
 
-#### I have data I want to monetise. Is this possible?
-
-Yes. The network relies on both data producers and data consumers. We will be rolling out algorithmic data monetization soon.
+When the client requests a new dataset, this data is sampled from the global generator on the server, and hence does not have associated privacy risks.
 
 #### What kind of data is the global model currently trained on?
 
-The framework itself is data agnostic. However, Ntropy is currently focusing on fraud and underwriting data in fintech.
+The framework itself is data agnostic. However, Ntropy is currently focusing on financial fraud and underwriting data.
 
 #### How do you prevent malicious data from polluting the global model? 
 
-The server has a separate validation dataset which is used to weigh each dataset by how much it improves performance on that validation data. If performance decreases, the dataset is discarded. 
+The server has a number of validation metrics which are used to weigh each dataset by how much it improves performance. If performance does not improve, the respective dataset is not added to the server model. 
 
 #### How do I start using this?
 
 Please contact partners@ntropy.network to join our partner network.
-
-Alternatively, you can set up your own server to enable training on internal datasets. Will be releasing our server-side code in the near future. 
 
 #### How do I contribute to this project?
 
