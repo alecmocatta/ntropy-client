@@ -8,7 +8,7 @@ setuptools.setup(
     version="0.0.4",
     author="Ntropy Network Inc.",
     author_email="dev@ntropy.network",
-    description="Train machine learning models on data across organizations.",
+    description="Train machine learning models on data across multiple data silos.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/ntropy-network/ntropy-client",

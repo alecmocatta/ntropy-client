@@ -122,6 +122,12 @@ class NetworkGenerator():
         data = requests.get(self.SERVER + "/data", params = self.params).json()
         return data["samples"], data["labels"], data["weights"]
 
+    def save(self, filename):
+        torch.save(self.model.state_dict(), filename)
+
+    def load(self, filename):
+        self.model.load_state_dict(torch.load(filename)) 
+
     def upload(self, dataset_id):
         self.params["dataset_id"] = dataset_id
         status = requests.get(self.SERVER + "/check_status", params = self.params).text
@@ -129,7 +135,7 @@ class NetworkGenerator():
             print("API key invalid")
             return
         filename = "./model.pt"
-        torch.save(self.model.state_dict(), filename)
+        self.save(filename)
         with open(filename, "rb") as fp:
             res = requests.post(self.SERVER + "/upload", files = {"file": fp}, params = self.params).text
             print(res)
