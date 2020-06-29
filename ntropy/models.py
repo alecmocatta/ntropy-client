@@ -2,9 +2,12 @@ import time
 
 import requests
 import torch
-import torch.nn as nn
+from torch import nn, optim
 import torch.nn.functional as F
 import torch.distributions as distributions
+from torch.autograd import Variable
+from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data.sampler import WeightedRandomSampler
 
 HAS_CUDA = torch.cuda.is_available()
 DEVICE = torch.device("cuda" if HAS_CUDA else "cpu")
@@ -58,13 +61,9 @@ class NetworkGenerator:
                 out = f(out)
             return out
 
-        def sampling(self, mu, log_var):
-            std = torch.exp(0.5 * log_var)
-            return torch.distributions.Normal(mu, std).rsample()
-
         def forward(self, x, c):
             mu, log_var = self.encoder(x, c)
-            z = self.sampling(mu, log_var)
+            z = torch.distributions.Normal(mu, torch.exp(0.5 * log_var)).rsample()
             return self.decoder(z, c), mu, log_var
 
     def __init__(
@@ -80,13 +79,13 @@ class NetworkGenerator:
         if num_layers <= 0:
             raise ValueError("model must have at least 1 layer")
         self.server = server
-        self.model = self.Model(
+        self.models = [self.Model(
             x_dim=x_dim,
             h_dim=h_dim,
             z_dim=z_dim,
             c_dim=c_dim,
             num_layers=num_layers
-        ).to(DEVICE)
+        ).to(DEVICE) for _ in range(2)]
         self.z_dim = z_dim
         self.c_dim = c_dim
         self.params = {
@@ -109,26 +108,7 @@ class NetworkGenerator:
         KLD = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
         return BCE + KLD
 
-    def fit(
-        self,
-        samples,
-        labels,
-        weights=None,
-        batch_size=1,
-        num_epochs=20,
-        learning_rate=0.001,
-    ):
-        r"""Trains generator on local data
-
-        Args:
-            samples: 2D N x M numpy array of floats with N observations
-                and M features per observaton
-            labels: 1D numpy array of integers with N sample labels
-            weights: 1D numpy array of floats with N sample weights
-            batch_size: batch_size. Default: 1
-            num_epochs: number of epochs to train. Default: 20
-            learning_rate: learning rate for training. Default: 0.001
-        """
+    def _fit_model(self, ind, samples, labels, weights, batch_size, num_epochs, learning_rate):
         dataset = TensorDataset(
             torch.from_numpy(samples).float(), torch.from_numpy(labels)
         )
@@ -145,25 +125,25 @@ class NetworkGenerator:
             loader = DataLoader(
                 dataset=dataset, batch_size=batch_size, shuffle=True, **kwargs
             )
-        optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        optimizer = optim.Adam(self.models[ind].parameters(), lr=learning_rate)
         for epoch in range(1, num_epochs + 1):
-            self.model.train()
+            self.models[ind].train()
             train_loss = 0
-            for batch_idx, (data, cond) in enumerate(loader):
+            for batch_ind, (data, cond) in enumerate(loader):
                 data, cond = data.to(DEVICE), self._one_hot(cond).to(DEVICE)
                 optimizer.zero_grad()
-                recon_batch, mu, log_var = self.model(data, cond)
+                recon_batch, mu, log_var = self.models[ind](data, cond)
                 loss = self._loss_function(recon_batch, data, mu, log_var)
                 loss.backward()
                 train_loss += loss.item()
                 optimizer.step()
-                if batch_idx % 100 == 0:
+                if batch_ind % 100 == 0:
                     print(
                         "epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
                             epoch,
-                            batch_idx * len(data),
+                            batch_ind * len(data),
                             len(loader.dataset),
-                            100.0 * batch_idx / len(loader),
+                            100.0 * batch_ind / len(loader),
                             loss.item() / len(data),
                         )
                     )
@@ -173,20 +153,37 @@ class NetworkGenerator:
                 )
             )
 
-    def generate_local(self, N):
-        r"""Samples from local generator. The labels will be mixed evently.
+    def fit(
+        self,
+        samples,
+        labels,
+        weights=None,
+        batch_size=1,
+        num_epochs=20,
+        learning_rate=0.001,
+    ):
+        r"""Trains generator on local data
 
         Args:
-            N: number of samples to generate
+            samples: 2D N x M numpy array of floats with N observations
+                and M features per observaton
+            labels: 1D numpy array of integers with N sample labels
+            weights: 1D numpy array of floats with N sample weights. Default: None
+            batch_size: batch_size. Default: 1
+            num_epochs: number of epochs to train. Default: 20
+            learning_rate: learning rate for training. Default: 0.001
         """
-        self.model.eval()
-        with torch.no_grad():
-            z = torch.randn(N, self.z_dim).to(DEVICE)
-            labels = torch.LongTensor(N).random_(0,self.c_dim)
-            samples = self.model.decoder(
-                z, self.one_hot(labels).to(DEVICE)).cpu()
-        weights = torch.ones(labels.size(0))
-        return samples.numpy(), labels.numpy(), weights.numpy()
+
+        Nc = int(0.75 * len(samples)) 
+        samples_train = samples[:Nc]
+        labels_train = labels[:Nc]
+        weights_train = weights[:Nc] if type(weights).__name__ == "ndarray" else None
+        samples_test = samples[Nc:]
+        labels_test = labels[Nc:]
+        weights_test = weights[Nc:] if type(weights).__name__ == "ndarray" else None
+
+        self._fit_model(0, samples_train, labels_train, weights_train, batch_size, num_epochs, learning_rate)
+        self._fit_model(1, samples_test, labels_test, weights_test, batch_size, num_epochs, learning_rate)
 
     def generate(self, dataset_id, N):
         r"""Samples from server generator. 
@@ -194,7 +191,6 @@ class NetworkGenerator:
         Args:
             dataset_id: unique id of local dataset
             N: number of samples to generate
-
         """
         self.params["dataset_id"] = dataset_id
         self.params["N"] = N
@@ -212,23 +208,6 @@ class NetworkGenerator:
         data = requests.get(self.server + "/data", params=self.params).json()
         return data["samples"], data["labels"], data["weights"]
 
-    def save(self, filename):
-        r"""Saves local model state to file
-
-        Args:
-            filename: path to file where to save the model state
-
-        """
-        torch.save(self.model.state_dict(), filename)
-
-    def load(self, filename):
-        r"""Loads local model state from file
-
-        Args:
-            filename: path to file which stores the model state 
-        """
-        self.model.load_state_dict(torch.load(filename))
-
     def upload(self, dataset_id):
         r"""Uploads local model to server
 
@@ -240,10 +219,14 @@ class NetworkGenerator:
             self.server + "/check_status", params=self.params).text
         if status == "key invalid":
             raise ValueError("API key invalid")
-        filename = "./model.pt"
-        self.save(filename)
-        with open(filename, "rb") as fp:
-            res = requests.post(
-                self.server + "/upload", files={"file": fp}, params=self.params
-            ).text
-            print(res)
+        filename_train = "./model_train.pt"
+        filename_test = "./model_test.pt"
+        torch.save(self.models[0].state_dict(), filename_train)
+        torch.save(self.models[1].state_dict(), filename_test)
+        with open(filename_train, "rb") as fp_train:
+            with open(filename_test, "rb") as fp_test:
+                res = requests.post(
+                        self.server + "/upload", files={"train": fp_train, "test": fp_test}
+                        , params=self.params
+                ).text
+                print(res)

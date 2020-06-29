@@ -10,7 +10,7 @@ with open("config.json", "r") as f:
     API_KEY = config["api_key"]
 
 # initialize data
-N = 1000  # number of observations
+N = 100000  # number of observations
 M = 100  # number of features
 dataset_id = "example_dataset"  # unique dataset id
 samples = np.random.rand(N, M)  # numerical observations
@@ -30,7 +30,7 @@ generator = NetworkGenerator(
 
 # train generator locally on our data
 generator.fit(
-    samples, labels, weights, batch_size=128, num_epochs=1, learning_rate=0.001
+    samples, labels, weights, batch_size=128, num_epochs=20, learning_rate=0.001
 )
 
 # upload generator to server
