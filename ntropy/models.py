@@ -1,21 +1,28 @@
-import requests
 import time
-import torch
 
-cuda = torch.cuda.is_available()
-device = torch.device("cuda" if cuda else "cpu")
+import requests
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.distributions as distributions
+
+HAS_CUDA = torch.cuda.is_available()
+DEVICE = torch.device("cuda" if HAS_CUDA else "cpu")
 
 
 class NetworkGenerator:
-    r"""Train generator on local dataset and samples improved dataset from server model.
+    r"""Train generator on local dataset and samples improved dataset
+    from server model.
 
     Args:
-        SERVER: server address
-        API_KEY: key to query the server. A unique key is allocated to each network participant by the server 
+        server: server address
+        api_key: key to query the server. A unique key is allocated to
+            each network participant by the server 
         x_dim: dimension of input vector
         h_dim: number of units in each layer
         z_dim: dimension of latent space distribution
-        c_dim: dimension of dataset label vector which conditions both the encoder and decoder
+        c_dim: dimension of dataset label vector which conditions both
+            the encoder and decoder
         num_layers: number of layers in the encoder and decoder
     """
 
@@ -53,24 +60,37 @@ class NetworkGenerator:
 
         def sampling(self, mu, log_var):
             std = torch.exp(0.5 * log_var)
-            eps = torch.randn_like(std)
-            return eps.mul(std).add(mu)
+            return torch.distributions.Normal(mu, std).rsample()
 
         def forward(self, x, c):
             mu, log_var = self.encoder(x, c)
             z = self.sampling(mu, log_var)
             return self.decoder(z, c), mu, log_var
 
-    def __init__(self, SERVER, API_KEY, x_dim, h_dim, z_dim, c_dim, num_layers):
-        assert num_layers > 0, "model must have at least 1 layer"
-        self.SERVER = SERVER
+    def __init__(
+            self,
+            server,
+            api_key,
+            x_dim,
+            h_dim,
+            z_dim,
+            c_dim,
+            num_layers,
+        ):
+        if num_layers <= 0:
+            raise ValueError("model must have at least 1 layer")
+        self.server = server
         self.model = self.Model(
-            x_dim=x_dim, h_dim=h_dim, z_dim=z_dim, c_dim=c_dim, num_layers=num_layers
-        ).to(device)
+            x_dim=x_dim,
+            h_dim=h_dim,
+            z_dim=z_dim,
+            c_dim=c_dim,
+            num_layers=num_layers
+        ).to(DEVICE)
         self.z_dim = z_dim
         self.c_dim = c_dim
         self.params = {
-            "API_KEY": API_KEY,
+            "api_key": api_key,
             "x_dim": x_dim,
             "h_dim": h_dim,
             "z_dim": z_dim,
@@ -101,7 +121,8 @@ class NetworkGenerator:
         r"""Trains generator on local data
 
         Args:
-            samples: 2D N x M numpy array of floats with N observations and M features per observaton
+            samples: 2D N x M numpy array of floats with N observations
+                and M features per observaton
             labels: 1D numpy array of integers with N sample labels
             weights: 1D numpy array of floats with N sample weights
             batch_size: batch_size. Default: 1
@@ -111,12 +132,15 @@ class NetworkGenerator:
         dataset = TensorDataset(
             torch.from_numpy(samples).float(), torch.from_numpy(labels)
         )
-        kwargs = {"num_workers": 1, "pin_memory": True} if cuda else {}
+        kwargs = {"num_workers": 1, "pin_memory": True} if HAS_CUDA else {}
         if type(weights).__name__ == "ndarray":
-            sampler = WeightedRandomSampler(weights=weights, num_samples=len(samples))
+            sampler = WeightedRandomSampler(
+                weights=weights, num_samples=len(samples))
             loader = DataLoader(
-                dataset=dataset, batch_size=batch_size, sampler=sampler, **kwargs
-            )
+                dataset=dataset,
+                batch_size=batch_size,
+                sampler=sampler,
+                **kwargs)
         else:
             loader = DataLoader(
                 dataset=dataset, batch_size=batch_size, shuffle=True, **kwargs
@@ -126,7 +150,7 @@ class NetworkGenerator:
             self.model.train()
             train_loss = 0
             for batch_idx, (data, cond) in enumerate(loader):
-                data, cond = data.to(device), self._one_hot(cond).to(device)
+                data, cond = data.to(DEVICE), self._one_hot(cond).to(DEVICE)
                 optimizer.zero_grad()
                 recon_batch, mu, log_var = self.model(data, cond)
                 loss = self._loss_function(recon_batch, data, mu, log_var)
@@ -157,9 +181,10 @@ class NetworkGenerator:
         """
         self.model.eval()
         with torch.no_grad():
-            z = torch.randn(N, self.z_dim).to(device)
+            z = torch.randn(N, self.z_dim).to(DEVICE)
             labels = torch.LongTensor(N).random_(0,self.c_dim)
-            samples = self.model.decoder(z, self.one_hot(labels).to(device)).cpu()
+            samples = self.model.decoder(
+                z, self.one_hot(labels).to(DEVICE)).cpu()
         weights = torch.ones(labels.size(0))
         return samples.numpy(), labels.numpy(), weights.numpy()
 
@@ -173,17 +198,18 @@ class NetworkGenerator:
         """
         self.params["dataset_id"] = dataset_id
         self.params["N"] = N
-        status = requests.get(self.SERVER + "/check_status", params=self.params).text
+        status = requests.get(
+            self.server + "/check_status", params=self.params).text
         if status == "key invalid":
             print("API key invalid")
             return
-        requests.post(self.SERVER + "/generate", params=self.params)
+        requests.post(self.server + "/generate", params=self.params)
         while status != "done":
             time.sleep(3)
             status = requests.get(
-                self.SERVER + "/check_status", params=self.params
+                self.server + "/check_status", params=self.params
             ).text
-        data = requests.get(self.SERVER + "/data", params=self.params).json()
+        data = requests.get(self.server + "/data", params=self.params).json()
         return data["samples"], data["labels"], data["weights"]
 
     def save(self, filename):
@@ -210,14 +236,14 @@ class NetworkGenerator:
             dataset_id: unique id of the local dataset
         """
         self.params["dataset_id"] = dataset_id
-        status = requests.get(self.SERVER + "/check_status", params=self.params).text
+        status = requests.get(
+            self.server + "/check_status", params=self.params).text
         if status == "key invalid":
-            print("API key invalid")
-            return
+            raise ValueError("API key invalid")
         filename = "./model.pt"
         self.save(filename)
         with open(filename, "rb") as fp:
             res = requests.post(
-                self.SERVER + "/upload", files={"file": fp}, params=self.params
+                self.server + "/upload", files={"file": fp}, params=self.params
             ).text
             print(res)
