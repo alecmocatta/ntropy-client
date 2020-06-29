@@ -1,6 +1,6 @@
 # ntropy-client
 
-A python package to train machine learning models on data residing in multiple data silos. Combining data from different datasets can boost accuracy and robustness of a machine learning model far beyond what is possible on just a single dataset.
+A python package to train machine learning models on data residing in multiple data silos. Combining data from different sources can boost accuracy and robustness of a machine learning model far beyond what is possible on just a single dataset.
 
 To achieve this, a data generator on the server is trained on data from all participants in the network. Each participant can then sample a dataset in their local feature encoding. The client-server data flow is the following:
 
