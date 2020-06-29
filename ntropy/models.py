@@ -158,15 +158,10 @@ class NetworkGenerator:
         self.model.eval()
         with torch.no_grad():
             z = torch.randn(N, self.z_dim).to(device)
-            c = torch.zeros(N, self.c_dim)
-            labels = torch.empty(N, dtype=torch.long)
-            for i in range(N):
-                label = random.randint(0, self.c_dim - 1)
-                c[i, label] = 1
-                labels[i] = label
-            samples = self.model.decoder(z, c.to(device)).cpu()
+            labels = torch.LongTensor(N).random_(0,self.c_dim)
+            samples = self.model.decoder(z, self.one_hot(labels).to(device)).cpu()
         weights = torch.ones(labels.size(0))
-        return samples, labels, weights
+        return samples.numpy(), labels.numpy(), weights.numpy()
 
     def generate(self, dataset_id, N):
         r"""Samples from server generator. 
