@@ -13,6 +13,7 @@ with open("config.json", "r") as f:
 N = 100000  # number of observations
 M = 100  # number of features
 dataset_id = "example_dataset"  # unique dataset id
+dataset_type = "US companies" # type of dataset
 samples = np.random.rand(N, M)  # numerical observations
 labels = np.random.randint(2, size=N)  # labels
 weights = np.random.uniform(0, 1, N)  # sample weights
@@ -34,7 +35,7 @@ generator.fit(
 )
 
 # upload generator to server
-generator.upload(dataset_id)
+generator.upload(dataset_id, dataset_type)
 
 # get improved dataset from server
 samples_new, labels_new, weights_new = generator.generate(dataset_id, N)

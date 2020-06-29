@@ -209,13 +209,16 @@ class NetworkGenerator:
         data = requests.get(self.server + "/data", params=self.params).json()
         return np.array(data["samples"]), np.array(data["labels"]), np.array(data["weights"])
 
-    def upload(self, dataset_id):
+    def upload(self, dataset_id, dataset_type):
         r"""Uploads local model to server
 
         Args:
             dataset_id: unique id of the local dataset
+            dataset_type: type of dataset. Use by server to match with
+            the right global model
         """
         self.params["dataset_id"] = dataset_id
+        self.params["dataset_type"] = dataset_type
         status = requests.get(
             self.server + "/check_status", params=self.params).text
         if status == "key invalid":
