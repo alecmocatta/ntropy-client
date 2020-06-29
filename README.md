@@ -2,7 +2,9 @@
 
 A python package to train machine learning models on data residing in multiple data silos. Data from different datasets can boost accuracy and robustness of a machine learning model far beyond whats possible on just a single dataset.
 
-To achieve this, a data generator on the server is trained on data from all participants in the network. Each participant can then sample a dataset in their local feature encoding from the server. As the server combines information from multiple structurally similar datasets, it can generate significantly better data than any of the loal datasets.
+To achieve this, a data generator on the server is trained on data from all participants in the network. Each participant can then sample a dataset in their local feature encoding. As the server combines information from multiple structurally similar datasets, it can generate significantly better data than any of the loal datasets. The client-server data flow is the following:
+
+<img src="https://raw.githubusercontent.com/ntropy-network/ntropy-client/master/images/img1.png" width="50%">
 
 For example, from combining 4 datasets of credit card transactions from 3 different organizations, ROC AUC already improves by more than 5%. See https://medium.com/ntropy-network/dissolving-data-silos-21e5eaab11f6 for more details.
 
