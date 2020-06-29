@@ -2,6 +2,7 @@ import time
 
 import requests
 import torch
+import numpy as np
 from torch import nn, optim
 import torch.nn.functional as F
 import torch.distributions as distributions
@@ -206,7 +207,7 @@ class NetworkGenerator:
                 self.server + "/check_status", params=self.params
             ).text
         data = requests.get(self.server + "/data", params=self.params).json()
-        return data["samples"], data["labels"], data["weights"]
+        return np.array(data["samples"]), np.array(data["labels"]), np.array(data["weights"])
 
     def upload(self, dataset_id):
         r"""Uploads local model to server
