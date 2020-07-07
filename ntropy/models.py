@@ -1,17 +1,61 @@
+import math
 import time
 
+import numpy as np
 import requests
 import torch
-import numpy as np
-from torch import nn, optim
 import torch.nn.functional as F
 import torch.distributions as distributions
+from torch import nn, optim
 from torch.autograd import Variable
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from torch.utils.data.sampler import WeightedRandomSampler
+
+from . import autograd_hacks
 
 HAS_CUDA = torch.cuda.is_available()
 DEVICE = torch.device("cuda" if HAS_CUDA else "cpu")
+
+
+def _compute_norms_sq(model):
+    sum_norms_sq = None
+    for name, param in model.named_parameters():
+        norms_sq = param.grad1normsq
+        assert sum_norms_sq is None or sum_norms_sq.size() == norms_sq.size()
+
+        if sum_norms_sq is None:
+            sum_norms_sq = norms_sq
+        else:
+            sum_norms_sq += norms_sq
+    return sum_norms_sq
+
+
+def _compute_factor(sum_norms_sq, sensitivity):
+    factor = torch.min(torch.tensor(1.), sensitivity / torch.sqrt(sum_norms_sq))
+    return factor
+
+
+def _clip_and_sum(model, factor):
+    dim, = factor.size()
+    for name, param in model.named_parameters():
+        assert not param.grad.requires_grad
+        param.grad = param.grad1weighted(factor)
+
+
+def _add_noise(model, sensitivity, epsilon, delta):
+    noise_std = math.sqrt(2 * math.log(1.25 / delta)) * sensitivity / epsilon
+    for name, param in model.named_parameters():
+        assert not param.grad.requires_grad
+        param.grad = torch.normal(mean=param.grad, std=noise_std)
+
+
+def _perturb_grad(model, sensitivity, epsilon, delta):
+    sum_norms_sq = _compute_norms_sq(model)
+    if sum_norms_sq is None:
+        return
+    factor = _compute_factor(sum_norms_sq, sensitivity)
+    _clip_and_sum(model, factor)
+    _add_noise(model, sensitivity, epsilon, delta)
 
 
 class NetworkGenerator:
@@ -49,6 +93,8 @@ class NetworkGenerator:
             for _ in range(num_layers - 1):
                 self.decoder_list.extend([nn.Linear(h_dim, h_dim), nn.ReLU()])
             self.decoder_list.extend([nn.Linear(h_dim, x_dim), nn.Sigmoid()])
+
+            autograd_hacks.add_hooks(self)
 
         def encoder(self, x, c):
             out = torch.cat([x, c], 1)
@@ -109,7 +155,13 @@ class NetworkGenerator:
         KLD = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
         return BCE + KLD
 
-    def _fit_model(self, ind, samples, labels, weights, batch_size, num_epochs, learning_rate):
+    def _fit_model(
+        self,
+        ind,
+        samples, labels, weights,
+        batch_size, num_epochs, learning_rate,
+        sensitivity, epsilon, delta,
+    ):
         dataset = TensorDataset(
             torch.from_numpy(samples).float(), torch.from_numpy(labels)
         )
@@ -126,16 +178,20 @@ class NetworkGenerator:
             loader = DataLoader(
                 dataset=dataset, batch_size=batch_size, shuffle=True, **kwargs
             )
-        optimizer = optim.Adam(self.models[ind].parameters(), lr=learning_rate)
+        model = self.models[ind]
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         for epoch in range(1, num_epochs + 1):
-            self.models[ind].train()
+            model.train()
             train_loss = 0
             for batch_ind, (data, cond) in enumerate(loader):
                 data, cond = data.to(DEVICE), self._one_hot(cond).to(DEVICE)
+                autograd_hacks.clear_backprops(model)
                 optimizer.zero_grad()
-                recon_batch, mu, log_var = self.models[ind](data, cond)
+                recon_batch, mu, log_var = model(data, cond)
                 loss = self._loss_function(recon_batch, data, mu, log_var)
                 loss.backward()
+                autograd_hacks.compute_grad1(model)
+                _perturb_grad(model, sensitivity, epsilon, delta)
                 train_loss += loss.item()
                 optimizer.step()
                 if batch_ind % 100 == 0:
@@ -162,6 +218,9 @@ class NetworkGenerator:
         batch_size=1,
         num_epochs=20,
         learning_rate=0.001,
+        sensitivity=1.,
+        epsilon=.1,
+        delta=.1,
     ):
         r"""Trains generator on local data
 
@@ -183,8 +242,19 @@ class NetworkGenerator:
         labels_test = labels[Nc:]
         weights_test = weights[Nc:] if type(weights).__name__ == "ndarray" else None
 
-        self._fit_model(0, samples_train, labels_train, weights_train, batch_size, num_epochs, learning_rate)
-        self._fit_model(1, samples_test, labels_test, weights_test, batch_size, num_epochs, learning_rate)
+        self._fit_model(
+            0,
+            samples_train, labels_train, weights_train,
+            batch_size, num_epochs, learning_rate,
+            sensitivity, epsilon, delta,
+        )
+        self._fit_model(
+            1,
+            samples_test, labels_test, weights_test,
+            batch_size, num_epochs, learning_rate,
+            sensitivity, epsilon, delta,
+        )
+        breakpoint()
 
     def generate(self, dataset_id, N):
         r"""Samples from server generator. 
