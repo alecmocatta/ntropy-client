@@ -139,18 +139,18 @@ class NetworkGenerator:
         model = self.models[ind]
         
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-        # privacy_engine = PrivacyEngine(
-        #     model,
-        #     batch_size,
-        #     len(dataset),
-        #     alphas=[1, 10, 100],
-        #     noise_multiplier=noise_multiplier,
-        #     max_grad_norm=max_grad_norm,
-        #     target_delta=delta,
-        #     loss_reduction='sum',
-        # )
+        privacy_engine = PrivacyEngine(
+            model,
+            batch_size,
+            len(dataset),
+            alphas=[1, 10, 100],
+            noise_multiplier=noise_multiplier,
+            max_grad_norm=max_grad_norm,
+            target_delta=delta,
+            loss_reduction='sum',
+        )
         
-        # privacy_engine.attach(optimizer)
+        privacy_engine.attach(optimizer)
         for epoch in range(1, num_epochs + 1):
             model.train()
             train_loss = 0
@@ -222,7 +222,6 @@ class NetworkGenerator:
             batch_size, num_epochs, learning_rate,
             max_grad_norm, epsilon, delta,
         )
-        breakpoint()
 
     def generate(self, dataset_id, N):
         r"""Samples from server generator. 
